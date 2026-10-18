@@ -1,0 +1,8 @@
+{
+  "contractVersion": 1,
+  "status": "COMPLETED",
+  "commandId": "cmd_abc",
+  "result": {
+    "ok": true
+  }
+}

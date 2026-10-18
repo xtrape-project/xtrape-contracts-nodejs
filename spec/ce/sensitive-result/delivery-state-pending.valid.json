@@ -1,0 +1,10 @@
+{
+  "contractVersion": 1,
+  "commandId": "cmd_secret",
+  "status": "PENDING",
+  "consumer": {
+    "kind": "OPERATOR",
+    "id": "prin_42"
+  },
+  "expiresAt": "2026-07-13T12:05:00.000Z"
+}

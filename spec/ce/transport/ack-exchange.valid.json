@@ -1,0 +1,11 @@
+{
+  "request": {
+    "contractVersion": 1,
+    "deliveryIds": ["dlv_001", "dlv_002"]
+  },
+  "response": {
+    "contractVersion": 1,
+    "acked": ["dlv_001"],
+    "unknown": ["dlv_002"]
+  }
+}

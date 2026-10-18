@@ -1,0 +1,29 @@
+{
+  "contractVersion": 1,
+  "deliveries": [
+    {
+      "kind": "COMMAND",
+      "deliveryId": "dlv_duplicate",
+      "attempt": 1,
+      "command": {
+        "operation": "EXECUTE",
+        "commandId": "cmd_one",
+        "actionName": "firstAction",
+        "issuedAt": "2026-07-14T10:00:00Z",
+        "timeoutSeconds": 30
+      }
+    },
+    {
+      "kind": "COMMAND",
+      "deliveryId": "dlv_duplicate",
+      "attempt": 1,
+      "command": {
+        "operation": "EXECUTE",
+        "commandId": "cmd_two",
+        "actionName": "secondAction",
+        "issuedAt": "2026-07-14T10:00:01Z",
+        "timeoutSeconds": 30
+      }
+    }
+  ]
+}

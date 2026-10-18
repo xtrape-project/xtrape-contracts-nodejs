@@ -1,0 +1,2085 @@
+openapi: 3.1.0
+info:
+  title: Xtrape Panel CE API
+  version: 0.1.0
+  summary: CE v0.1 API contract for Xtrape Panel Worker governance.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: Xtrape Panel CE maintainers
+    url: https://xtrape.com/governance/
+  description: |
+    This contract defines the CE v0.1 Admin API, Agent API, and System API.
+    Admin API uses /api/admin/*, Agent API uses /api/agents/*, and System API uses /api/system/*.
+
+    ## Standard Error Responses
+
+    Any endpoint MAY return one of the following standard error responses. The
+    canonical list of `error.code` values lives in `09-contracts/errors.md`.
+
+      400 Bad Request          - malformed request                  (#/components/responses/BadRequest)
+      401 Unauthorized         - missing or invalid auth             (#/components/responses/Unauthorized)
+      403 Forbidden            - allowed-but-blocked, CSRF mismatch  (#/components/responses/Forbidden)
+      404 Not Found            - resource missing                    (#/components/responses/NotFound)
+      409 Conflict             - duplicate / terminal state          (#/components/responses/Conflict)
+      410 Gone                 - expired Command                     (#/components/responses/Gone)
+      422 Unprocessable Entity - validation failed                   (#/components/responses/UnprocessableEntity)
+      500 Internal Server Error- unexpected error                    (#/components/responses/InternalError)
+
+    Endpoint-specific entries below add or override these where useful, but every
+    endpoint should be assumed to be capable of returning the relevant subset of
+    the above. Backend MUST always wrap error bodies in `ErrorEnvelope`.
+
+    ## Authentication and CSRF
+
+    Admin API: cookie-based session (`opstage_session`, HttpOnly, Secure,
+    SameSite=Lax). Every state-changing call (POST/PUT/PATCH/DELETE) MUST
+    include the `X-CSRF-Token` header carrying the value returned by
+    `POST /api/admin/auth/login`, `GET /api/admin/auth/me`, or
+    `GET /api/admin/auth/csrf`. Mismatch returns `403 CSRF_INVALID`.
+
+    Agent API: `Authorization: Bearer <opstage_agent_token>` only. Agents
+    MUST NOT send cookies, and CSRF tokens do not apply.
+
+    System API: unauthenticated; safe to expose to liveness/readiness probes.
+
+    ## Pagination, Sorting, and Filtering Conventions
+
+    All list endpoints follow these conventions unless an endpoint explicitly
+    states otherwise:
+
+    - `page` (>= 1, default 1)
+    - `pageSize` (1..100, default 20)
+    - `sort` (e.g. `-createdAt,name` for descending then ascending). Allowed
+      fields are documented per endpoint; unknown fields return
+      `422 VALIDATION_FAILED`.
+    - Filters are individual query params named after the filtered field
+      (e.g. `status=HEALTHY`, `agentId=agt_...`). Multiple values for the
+      same key are OR'ed; multiple keys are AND'ed.
+    - Response body is `{ data: T[], pagination: { page, pageSize, total } }`
+      wrapped by `SuccessEnvelope`.
+
+    The Backend MUST validate every query param with the matching Zod schema
+    in `packages/contracts` before reaching the data layer.
+servers:
+  - url: http://localhost:8080
+    description: Local CE development server
+security: []
+tags:
+  - name: AdminAuth
+    description: Admin login, logout, session inspection, and CSRF refresh.
+  - name: AdminDashboard
+    description: Aggregate counters for the CE governance loop.
+  - name: AdminAgents
+    description: List, inspect, and manage Agents bound to Workers.
+  - name: AdminRegistrationTokens
+    description: Create, list, and revoke single-use registration tokens.
+  - name: AdminCapsuleServices
+    description: Inspect Workers and request predefined actions.
+  - name: AdminCommands
+    description: Inspect Commands created via Worker actions.
+  - name: AdminAuditEvents
+    description: Read the immutable audit trail.
+  - name: Agent
+    description: Agent-side bearer-token API used by the Node Embedded Agent SDK.
+  - name: System
+    description: Unauthenticated probes for liveness and version metadata.
+paths:
+  /api/admin/auth/login:
+    post:
+      tags: [AdminAuth]
+      summary: Log in an admin user.
+      description: |
+        Validates credentials and starts an admin session. On success the
+        Backend MUST set the `opstage_session` cookie (HttpOnly, Secure,
+        SameSite=Lax, Path=/, Max-Age per ADR 0004) and return a fresh
+        `csrfToken` in the response body. All subsequent state-changing
+        Admin API calls (POST/PUT/PATCH/DELETE) MUST include the same value
+        in the `X-CSRF-Token` header (double-submit token pattern).
+      operationId: adminLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+            example:
+              username: admin
+              password: change-on-first-login
+      responses:
+        '200':
+          description: Login succeeded. Session cookie is set and CSRF token returned.
+          headers:
+            Set-Cookie:
+              description: |
+                Sets the admin session cookie. Format:
+                `opstage_session=<opaque>; Path=/; HttpOnly; Secure;
+                SameSite=Lax; Max-Age=<sessionTtlSeconds>`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminSession'
+              example:
+                success: true
+                data:
+                  user:
+                    id: usr_01HXYZABC1234567
+                    username: admin
+                    displayName: Admin
+                    role: owner
+                    status: ACTIVE
+                  csrfToken: 7f3c1e8e9b2c4a8c91a0a7c2e1d3b5f6
+                  expiresAt: '2026-05-01T13:30:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/auth/logout:
+    post:
+      tags: [AdminAuth]
+      summary: Log out current admin session.
+      description: |
+        Invalidates the current admin session and clears the
+        `opstage_session` cookie. Requires a valid CSRF header.
+      operationId: adminLogout
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          description: Logout succeeded. Session cookie is cleared.
+          headers:
+            Set-Cookie:
+              description: |
+                Clears the admin session cookie. Format:
+                `opstage_session=; Path=/; HttpOnly; Secure;
+                SameSite=Lax; Max-Age=0`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/admin/auth/me:
+    get:
+      tags: [AdminAuth]
+      summary: Get current admin user.
+      description: |
+        Returns the current admin session. Useful for UI bootstrap to detect
+        whether the user is logged in and to refresh the CSRF token.
+      operationId: adminMe
+      security:
+        - AdminSessionCookie: []
+      responses:
+        '200':
+          description: Current admin user.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminSession'
+              example:
+                success: true
+                data:
+                  user:
+                    id: usr_01HXYZABC1234567
+                    username: admin
+                    displayName: Admin
+                    role: owner
+                    status: ACTIVE
+                  csrfToken: 7f3c1e8e9b2c4a8c91a0a7c2e1d3b5f6
+                  expiresAt: '2026-05-01T13:30:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/auth/csrf:
+    get:
+      tags: [AdminAuth]
+      summary: Refresh the CSRF token for the current session.
+      description: |
+        Returns a new CSRF token bound to the current `opstage_session`
+        cookie. The Backend MUST rotate the stored token on every call so
+        old tokens stop validating. Used by the UI right before
+        long-form interactions, or after a 403 `CSRF_INVALID` response.
+      operationId: adminCsrf
+      security:
+        - AdminSessionCookie: []
+      responses:
+        '200':
+          description: New CSRF token for the active session.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [csrfToken]
+                        properties:
+                          csrfToken:
+                            type: string
+              example:
+                success: true
+                data:
+                  csrfToken: 7f3c1e8e9b2c4a8c91a0a7c2e1d3b5f6
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/dashboard/summary:
+    get:
+      tags: [AdminDashboard]
+      summary: Get CE dashboard summary.
+      operationId: getDashboardSummary
+      security:
+        - AdminSessionCookie: []
+      responses:
+        '200':
+          description: Dashboard summary.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DashboardSummary'
+  /api/admin/agents:
+    get:
+      tags: [AdminAgents]
+      summary: List Agents.
+      description: |
+        Allowed `sort` fields: `createdAt`, `lastSeenAt`, `name`. Default
+        sort: `-createdAt`. Filter `status` accepts multiple values
+        (OR'ed).
+      operationId: listAgents
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/AgentStatus'
+      responses:
+        '200':
+          description: Agent list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Agent'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+              example:
+                success: true
+                data:
+                  - id: agt_01HXYZAGT1234567
+                    code: demo-prod-1
+                    name: Demo Prod Agent 1
+                    mode: embedded
+                    runtime: nodejs
+                    status: ONLINE
+                    lastHeartbeatAt: '2026-05-01T12:00:00.000Z'
+                    createdAt: '2026-04-30T10:00:00.000Z'
+                    updatedAt: '2026-05-01T12:00:00.000Z'
+                pagination:
+                  page: 1
+                  pageSize: 20
+                  total: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/agents/{agentId}:
+    get:
+      tags: [AdminAgents]
+      summary: Get Agent detail.
+      operationId: getAgent
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Agent detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Agent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/agents/{agentId}/disable:
+    post:
+      tags: [AdminAgents]
+      summary: Disable an Agent.
+      operationId: disableAgent
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          $ref: '#/components/responses/Ok'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/agents/{agentId}/enable:
+    post:
+      tags: [AdminAgents]
+      summary: Enable an Agent.
+      operationId: enableAgent
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          $ref: '#/components/responses/Ok'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/agents/{agentId}/revoke:
+    post:
+      tags: [AdminAgents]
+      summary: Revoke an Agent.
+      operationId: revokeAgent
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          $ref: '#/components/responses/Ok'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/registration-tokens:
+    post:
+      tags: [AdminRegistrationTokens]
+      summary: Create a registration token.
+      description: |
+        Creates a single-use registration token. The raw token is returned
+        ONCE in `data.rawToken`; only its SHA-256 hash is persisted. Subsequent
+        list calls do not include `rawToken`.
+      operationId: createRegistrationToken
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRegistrationTokenRequest'
+            example:
+              name: demo-host-1
+              expiresInSeconds: 3600
+      responses:
+        '200':
+          description: Registration token created. Raw token is shown only once.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreateRegistrationTokenResponse'
+              example:
+                success: true
+                data:
+                  id: tok_01HXYZTOK1234567
+                  name: demo-host-1
+                  status: ACTIVE
+                  expiresAt: '2026-05-01T13:00:00.000Z'
+                  createdAt: '2026-05-01T12:00:00.000Z'
+                  rawToken: opstage_reg_4xKj8mNpQ2rT5v7yA9bC1dF3gH6iJ0kL
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    get:
+      tags: [AdminRegistrationTokens]
+      summary: List registration tokens without raw token values.
+      description: |
+        Allowed `sort` fields: `createdAt`, `expiresAt`. Default: `-createdAt`.
+        Filter `status` accepts multiple values (OR'ed).
+      operationId: listRegistrationTokens
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/TokenStatus'
+      responses:
+        '200':
+          description: Registration token list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RegistrationToken'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/registration-tokens/{tokenId}/revoke:
+    post:
+      tags: [AdminRegistrationTokens]
+      summary: Revoke a registration token.
+      operationId: revokeRegistrationToken
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+        - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '200':
+          $ref: '#/components/responses/Ok'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/capsule-services:
+    get:
+      tags: [AdminCapsuleServices]
+      summary: List Workers.
+      description: |
+        Allowed `sort` fields: `createdAt`, `lastReportedAt`, `code`, `name`.
+        Default sort: `-createdAt`. Filter `status` accepts multiple values
+        (OR'ed); `agentId` filters services owned by a specific Agent.
+      operationId: listCapsuleServices
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/CapsuleServiceStatus'
+        - name: agentId
+          in: query
+          schema:
+            type: string
+            pattern: '^agt_'
+      responses:
+        '200':
+          description: Worker list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CapsuleService'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+              example:
+                success: true
+                data:
+                  - id: svc_01HXYZSVC1234567
+                    agentId: agt_01HXYZAGT1234567
+                    code: demo-billing
+                    name: Demo Billing Service
+                    runtime: nodejs
+                    status: HEALTHY
+                    healthStatus: UP
+                    lastReportedAt: '2026-05-01T12:00:00.000Z'
+                    lastHealthAt: '2026-05-01T12:00:00.000Z'
+                    createdAt: '2026-04-30T10:00:00.000Z'
+                    updatedAt: '2026-05-01T12:00:00.000Z'
+                pagination:
+                  page: 1
+                  pageSize: 20
+                  total: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/capsule-services/{serviceId}:
+    get:
+      tags: [AdminCapsuleServices]
+      summary: Get Worker detail.
+      operationId: getCapsuleService
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Worker detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CapsuleServiceDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/admin/capsule-services/{serviceId}/manifest:
+    get:
+      tags: [AdminCapsuleServices]
+      summary: Get Worker manifest JSON.
+      operationId: getCapsuleServiceManifest
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Manifest JSON.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+  /api/admin/capsule-services/{serviceId}/health:
+    get:
+      tags: [AdminCapsuleServices]
+      summary: Get latest health report.
+      operationId: getCapsuleServiceHealth
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Latest health report.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HealthReport'
+  /api/admin/capsule-services/{serviceId}/configs:
+    get:
+      tags: [AdminCapsuleServices]
+      summary: List config metadata.
+      operationId: listCapsuleServiceConfigs
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Config metadata list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ConfigItem'
+  /api/admin/capsule-services/{serviceId}/actions:
+    get:
+      tags: [AdminCapsuleServices]
+      summary: List action definitions.
+      operationId: listCapsuleServiceActions
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Action definition list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ActionDefinition'
+  /api/admin/capsule-services/{serviceId}/actions/{actionName}:
+    post:
+      tags: [AdminCapsuleServices]
+      summary: Request predefined action execution.
+      description: |
+        Validates the action and creates a `Command` row in `PENDING` state.
+        Returns the freshly created Command. UI MAY then poll
+        `GET /api/admin/commands/{commandId}` for terminal status.
+        See `04-opstage/04-command-and-action-model.md` §23 for the
+        canonical sequence and validation rules.
+      operationId: createActionCommand
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceId'
+        - $ref: '#/components/parameters/ActionName'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateActionCommandRequest'
+            example:
+              payload:
+                graceful: true
+              confirmation: true
+      responses:
+        '200':
+          description: Command created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Command'
+              example:
+                success: true
+                data:
+                  id: cmd_01HXYZCMD1234567
+                  agentId: agt_01HXYZAGT1234567
+                  serviceId: svc_01HXYZSVC1234567
+                  type: ACTION_EXECUTE
+                  actionName: restart
+                  payload:
+                    graceful: true
+                  status: PENDING
+                  createdAt: '2026-05-01T12:00:00.000Z'
+                  expiresAt: '2026-05-01T12:05:00.000Z'
+                  createdByUserId: usr_01HXYZABC1234567
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        default:
+          $ref: '#/components/responses/InternalError'
+  /api/admin/commands:
+    get:
+      tags: [AdminCommands]
+      summary: List Commands.
+      description: |
+        Allowed `sort` fields: `createdAt`, `finishedAt`. Default: `-createdAt`.
+        Filter `status` accepts multiple values (OR'ed). `serviceId` and
+        `agentId` filter by Worker / Agent ownership.
+      operationId: listCommands
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/CommandStatus'
+        - name: serviceId
+          in: query
+          schema:
+            type: string
+            pattern: '^svc_'
+        - name: agentId
+          in: query
+          schema:
+            type: string
+            pattern: '^agt_'
+      responses:
+        '200':
+          description: Command list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Command'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+              example:
+                success: true
+                data:
+                  - id: cmd_01HXYZCMD1234567
+                    agentId: agt_01HXYZAGT1234567
+                    serviceId: svc_01HXYZSVC1234567
+                    type: ACTION_EXECUTE
+                    actionName: restart
+                    status: SUCCEEDED
+                    createdAt: '2026-05-01T12:00:00.000Z'
+                    startedAt: '2026-05-01T12:00:00.500Z'
+                    completedAt: '2026-05-01T12:00:03.500Z'
+                pagination:
+                  page: 1
+                  pageSize: 20
+                  total: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/commands/{commandId}:
+    get:
+      tags: [AdminCommands]
+      summary: Get Command detail.
+      operationId: getCommand
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CommandId'
+      responses:
+        '200':
+          description: Command detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CommandDetail'
+  /api/admin/audit-events:
+    get:
+      tags: [AdminAuditEvents]
+      summary: List AuditEvents.
+      description: |
+        Allowed `sort` fields: `createdAt`. Default: `-createdAt`.
+        Filters: `actorType`, `targetType`, `targetId`, `result`, `from`/`to`
+        (ISO-8601, applied to `createdAt`).
+      operationId: listAuditEvents
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: actorType
+          in: query
+          schema:
+            $ref: '#/components/schemas/AuditActorType'
+        - name: targetType
+          in: query
+          schema:
+            type: string
+        - name: targetId
+          in: query
+          schema:
+            type: string
+        - name: result
+          in: query
+          schema:
+            $ref: '#/components/schemas/AuditResult'
+        - name: from
+          in: query
+          description: Inclusive lower bound applied to `createdAt`.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Inclusive upper bound applied to `createdAt`.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: AuditEvent list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditEvent'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+              example:
+                success: true
+                data:
+                  - id: aud_01HXYZAUD1234567
+                    createdAt: '2026-05-01T12:00:00.000Z'
+                    actorType: USER
+                    actorId: usr_01HXYZABC1234567
+                    action: agent.disabled
+                    targetType: Agent
+                    targetId: agt_01HXYZAGT1234567
+                    result: SUCCESS
+                    message: Disabled by admin.
+                pagination:
+                  page: 1
+                  pageSize: 20
+                  total: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+  /api/admin/audit-events/{auditEventId}:
+    get:
+      tags: [AdminAuditEvents]
+      summary: Get AuditEvent detail.
+      operationId: getAuditEvent
+      security:
+        - AdminSessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AuditEventId'
+      responses:
+        '200':
+          description: AuditEvent detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuditEvent'
+  /api/agents/register:
+    post:
+      tags: [Agent]
+      summary: Register an Agent with a registration token.
+      description: |
+        Consumes a single-use registration token and creates an Agent row.
+        The Backend returns a fresh Agent bearer token in `data.agentToken`
+        ONCE — only its hash is persisted. Agent SDK MUST persist the token
+        in a write-once secure file or in-memory and supply it in
+        `Authorization: Bearer <token>` for all subsequent calls.
+      operationId: registerAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAgentRequest'
+            example:
+              registrationToken: opstage_reg_4xKj8mNpQ2rT5v7yA9bC1dF3gH6iJ0kL
+              agent:
+                code: demo-prod-1
+                name: Demo Prod Agent 1
+                mode: embedded
+                runtime: nodejs
+      responses:
+        '200':
+          description: Agent registered. Agent token is returned once.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/RegisterAgentResponse'
+              example:
+                success: true
+                data:
+                  agentId: agt_01HXYZAGT1234567
+                  agentToken: opstage_agent_3v7yA9bC1dF3gH6iJ0kL4xKj8mNpQ2rT
+                  heartbeatIntervalSeconds: 30
+                  commandPollIntervalSeconds: 5
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        default:
+          $ref: '#/components/responses/InternalError'
+  /api/agents/{agentId}/heartbeat:
+    post:
+      tags: [Agent]
+      summary: Send Agent heartbeat and optional health report.
+      description: |
+        Updates `Agent.lastSeenAt`. Optional body fields allow the Agent to
+        report its overall health and any transient diagnostic info. The
+        response echoes the current authoritative timing defaults so an Agent
+        can converge on Backend-side changes without a redeploy.
+      operationId: agentHeartbeat
+      security:
+        - AgentBearerToken: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentHeartbeatRequest'
+            example:
+              health:
+                status: UP
+                message: ok
+      responses:
+        '200':
+          description: Heartbeat accepted.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentHeartbeatResponse'
+              example:
+                success: true
+                data:
+                  heartbeatIntervalSeconds: 30
+                  commandPollIntervalSeconds: 5
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        default:
+          $ref: '#/components/responses/InternalError'
+  /api/agents/{agentId}/services/report:
+    post:
+      tags: [Agent]
+      summary: Report Worker manifest, configs, actions, and health.
+      description: |
+        Idempotent upsert keyed by `(workspaceId, code)`. The Agent SHOULD
+        report once at startup and again when its manifest changes, NOT on
+        every heartbeat. Backend persists `manifest`, `configs`, `actions`,
+        and the latest `health` snapshot.
+      operationId: reportAgentServices
+      security:
+        - AgentBearerToken: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceReportRequest'
+            example:
+              services:
+                - code: demo-billing
+                  name: Demo Billing Service
+                  runtime: nodejs
+                  manifest:
+                    kind: CapsuleService
+                    schemaVersion: '1.0'
+                    code: demo-billing
+                    name: Demo Billing Service
+                    version: 0.1.0
+                    runtime: nodejs
+                    agentMode: embedded
+                  configs:
+                    - key: BILLING_API_URL
+                      type: string
+                      valuePreview: https://billing.example.com
+                      sensitive: false
+                  actions:
+                    - name: restart
+                      label: Restart service
+                      dangerLevel: MEDIUM
+                      requiresConfirmation: true
+                  health:
+                    status: UP
+                    message: 5 dependencies up
+      responses:
+        '200':
+          $ref: '#/components/responses/Ok'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        default:
+          $ref: '#/components/responses/InternalError'
+  /api/agents/{agentId}/commands:
+    get:
+      tags: [Agent]
+      summary: Poll Commands assigned to the Agent.
+      description: |
+        Returns at most `limit` commands in `PENDING` status, ordered by
+        `createdAt ASC`, atomically transitioning each to `RUNNING` before
+        returning. Idempotent at the protocol level (a poll that returns no
+        commands is identical to a missed poll).
+      operationId: pollAgentCommands
+      security:
+        - AgentBearerToken: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - name: limit
+          in: query
+          description: Maximum number of commands to return per poll. Default 10, max 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Commands assigned to this Agent.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Command'
+              example:
+                success: true
+                data:
+                  - id: cmd_01HXYZCMD1234567
+                    agentId: agt_01HXYZAGT1234567
+                    serviceId: svc_01HXYZSVC1234567
+                    type: ACTION_EXECUTE
+                    actionName: restart
+                    payload: {}
+                    status: RUNNING
+                    createdAt: '2026-05-01T12:00:00.000Z'
+                    startedAt: '2026-05-01T12:00:00.500Z'
+                    expiresAt: '2026-05-01T12:05:00.000Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        default:
+          $ref: '#/components/responses/InternalError'
+  /api/agents/{agentId}/commands/{commandId}/result:
+    post:
+      tags: [Agent]
+      summary: Report CommandResult.
+      description: |
+        Reports terminal CommandResult. Backend transitions the Command to
+        `SUCCEEDED` (when `success: true`) or `FAILED`. A second result for
+        the same Command is a `409 COMMAND_TERMINAL`. A result reported after
+        the TTL has expired is a `410 COMMAND_EXPIRED` and is ignored.
+      operationId: reportCommandResult
+      security:
+        - AgentBearerToken: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/CommandId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCommandResultRequest'
+            example:
+              success: true
+              message: Service restarted in 3.2s
+              data:
+                pidBefore: 1024
+                pidAfter: 1097
+              startedAt: '2026-05-01T12:00:00.500Z'
+              finishedAt: '2026-05-01T12:00:03.700Z'
+      responses:
+        '200':
+          $ref: '#/components/responses/Ok'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        default:
+          $ref: '#/components/responses/InternalError'
+  /api/system/health:
+    get:
+      tags: [System]
+      summary: Get system health.
+      operationId: getSystemHealth
+      responses:
+        '200':
+          description: System health.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemHealth'
+  /api/system/version:
+    get:
+      tags: [System]
+      summary: Get system version.
+      operationId: getSystemVersion
+      responses:
+        '200':
+          description: System version.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemVersion'
+components:
+  securitySchemes:
+    AdminSessionCookie:
+      type: apiKey
+      in: cookie
+      name: opstage_session
+    AgentBearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opstage_agent token
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    AgentId:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^agt_'
+    ServiceId:
+      name: serviceId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^svc_'
+    CommandId:
+      name: commandId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^cmd_'
+    TokenId:
+      name: tokenId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^tok_'
+    AuditEventId:
+      name: auditEventId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^aud_'
+    ActionName:
+      name: actionName
+      in: path
+      required: true
+      schema:
+        type: string
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      description: |
+        Double-submit CSRF token bound to the active `opstage_session`
+        cookie. Required for all state-changing Admin API calls
+        (POST/PUT/PATCH/DELETE). Obtain it from `POST /api/admin/auth/login`,
+        `GET /api/admin/auth/me`, or `GET /api/admin/auth/csrf`.
+      schema:
+        type: string
+    Sort:
+      name: sort
+      in: query
+      description: |
+        Sort expression. Format: `field` (ascending) or `-field` (descending).
+        Multiple fields are comma-separated and applied left-to-right. The
+        set of allowed fields is documented per endpoint; unknown fields
+        return 422 `VALIDATION_FAILED`.
+      schema:
+        type: string
+  responses:
+    Ok:
+      description: Operation succeeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessEnvelope'
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Authentication failed (missing or invalid session/token).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Authenticated but not allowed (includes CSRF token mismatch and disabled/revoked Agents).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: State conflict (duplicate resource, terminal Command, etc.).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Gone:
+      description: Resource is no longer available (expired Command).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnprocessableEntity:
+      description: Validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          $ref: '#/components/schemas/ErrorInfo'
+    ErrorInfo:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    Pagination:
+      type: object
+      required: [page, pageSize, total]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+    AdminLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    AdminSession:
+      type: object
+      required: [user, csrfToken, expiresAt]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        csrfToken:
+          type: string
+          description: |
+            Token to be echoed in the `X-CSRF-Token` header for any
+            state-changing Admin API call. Rotated on `/api/admin/auth/csrf`.
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            Absolute expiry of the current session cookie. UI may use this
+            to schedule a silent refresh or warn the user before logout.
+    User:
+      type: object
+      required: [id, username, role, status]
+      properties:
+        id:
+          type: string
+          pattern: '^usr_'
+        username:
+          type: string
+        displayName:
+          type: [string, 'null']
+        role:
+          type: string
+          enum: [owner]
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+    DashboardSummary:
+      type: object
+      required: [agentCounts, serviceCounts, commandCounts]
+      properties:
+        agentCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        serviceCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        commandCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        recentCommands:
+          type: array
+          items:
+            $ref: '#/components/schemas/Command'
+        recentAuditEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+    AgentStatus:
+      type: string
+      enum: [PENDING, ONLINE, OFFLINE, DISABLED, REVOKED]
+    CapsuleServiceStatus:
+      type: string
+      enum: [UNKNOWN, HEALTHY, UNHEALTHY, STALE, OFFLINE]
+    HealthStatus:
+      type: string
+      enum: [UP, DEGRADED, DOWN, UNKNOWN]
+    CommandStatus:
+      type: string
+      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, EXPIRED, CANCELLED]
+    DangerLevel:
+      type: string
+      enum: [LOW, MEDIUM, HIGH]
+    AuditActorType:
+      type: string
+      enum: [USER, AGENT, SYSTEM]
+    AuditResult:
+      type: string
+      enum: [SUCCESS, FAILURE]
+    Agent:
+      type: object
+      required: [id, code, mode, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^agt_'
+        code:
+          type: string
+        name:
+          type: [string, 'null']
+        mode:
+          type: string
+          enum: [embedded, sidecar, external]
+        runtime:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        lastHeartbeatAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    TokenStatus:
+      type: string
+      description: |
+        Lifecycle of a registration or agent token. CE v0.1 enum.
+      enum: [ACTIVE, USED, REVOKED, EXPIRED]
+    RegistrationToken:
+      type: object
+      required: [id, name, status, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: '^tok_'
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/TokenStatus'
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        usedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    CreateRegistrationTokenRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          default: Default registration token
+        expiresInSeconds:
+          type: integer
+          minimum: 60
+    CreateRegistrationTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/RegistrationToken'
+        - type: object
+          required: [rawToken]
+          properties:
+            rawToken:
+              type: string
+              description: Raw token shown only once. Persisted only as a SHA-256 hash.
+              pattern: '^opstage_reg_'
+    CapsuleService:
+      type: object
+      required: [id, code, name, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^svc_'
+        agentId:
+          type: string
+          pattern: '^agt_'
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        version:
+          type: [string, 'null']
+        runtime:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/CapsuleServiceStatus'
+        healthStatus:
+          $ref: '#/components/schemas/HealthStatus'
+        lastReportedAt:
+          type: [string, 'null']
+          format: date-time
+        lastHealthAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CapsuleServiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/CapsuleService'
+        - type: object
+          properties:
+            manifest:
+              type: object
+              additionalProperties: true
+            health:
+              $ref: '#/components/schemas/HealthReport'
+            configs:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConfigItem'
+            actions:
+              type: array
+              items:
+                $ref: '#/components/schemas/ActionDefinition'
+    HealthReport:
+      type: object
+      required: [id, serviceId, status, reportedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^hlr_'
+        serviceId:
+          type: string
+          pattern: '^svc_'
+        agentId:
+          type: string
+          pattern: '^agt_'
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        message:
+          type: [string, 'null']
+        details:
+          type: object
+          additionalProperties: true
+        reportedAt:
+          type: string
+          format: date-time
+    ConfigItem:
+      type: object
+      required: [id, serviceId, key, type, sensitive]
+      properties:
+        id:
+          type: string
+          pattern: '^cfg_'
+        serviceId:
+          type: string
+          pattern: '^svc_'
+        key:
+          type: string
+        label:
+          type: [string, 'null']
+        type:
+          type: string
+        source:
+          type: [string, 'null']
+        editable:
+          type: boolean
+        sensitive:
+          type: boolean
+        valuePreview:
+          type: [string, 'null']
+        defaultValue:
+          type: [string, 'null']
+        secretRef:
+          type: [string, 'null']
+    ActionDefinition:
+      type: object
+      required: [id, serviceId, name, label, dangerLevel, requiresConfirmation]
+      properties:
+        id:
+          type: string
+          pattern: '^act_'
+        serviceId:
+          type: string
+          pattern: '^svc_'
+        name:
+          type: string
+        label:
+          type: string
+        description:
+          type: [string, 'null']
+        dangerLevel:
+          $ref: '#/components/schemas/DangerLevel'
+        requiresConfirmation:
+          type: boolean
+        inputSchema:
+          type: object
+          additionalProperties: true
+        timeoutSeconds:
+          type: integer
+    CreateActionCommandRequest:
+      type: object
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+        confirmation:
+          type: boolean
+          description: |
+            Required to be `true` when `ActionDefinition.requiresConfirmation`
+            is true. Backend rejects with `409 ACTION_REQUIRES_CONFIRMATION`
+            otherwise. UI MUST show an explicit confirmation dialog before
+            sending.
+    Command:
+      type: object
+      required: [id, agentId, serviceId, type, actionName, status, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: '^cmd_'
+        agentId:
+          type: string
+          pattern: '^agt_'
+        serviceId:
+          type: string
+          pattern: '^svc_'
+        type:
+          type: string
+          enum: [ACTION_PREPARE, ACTION_EXECUTE]
+        actionName:
+          type: string
+        status:
+          $ref: '#/components/schemas/CommandStatus'
+        payload:
+          type: object
+          additionalProperties: true
+        createdByUserId:
+          type: [string, 'null']
+          pattern: '^usr_'
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+    CommandDetail:
+      allOf:
+        - $ref: '#/components/schemas/Command'
+        - type: object
+          properties:
+            result:
+              $ref: '#/components/schemas/CommandResult'
+    CommandResult:
+      type: object
+      required: [id, commandId, success, reportedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^crs_'
+        commandId:
+          type: string
+          pattern: '^cmd_'
+        success:
+          type: boolean
+        message:
+          type: [string, 'null']
+        data:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        reportedAt:
+          type: string
+          format: date-time
+    ReportCommandResultRequest:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+          description: |
+            Structured error payload. SHOULD include at minimum
+            `{ code: string, message: string }`. Backend stores it as JSON.
+        startedAt:
+          type: string
+          format: date-time
+          description: When the Agent began executing the action handler.
+        finishedAt:
+          type: string
+          format: date-time
+          description: When the Agent finished executing. Defaults to receipt time.
+    RegisterAgentRequest:
+      type: object
+      required: [registrationToken, agent]
+      properties:
+        registrationToken:
+          type: string
+          pattern: '^opstage_reg_'
+        agent:
+          type: object
+          required: [code, mode]
+          properties:
+            code:
+              type: string
+            name:
+              type: string
+            mode:
+              type: string
+              enum: [embedded]
+            runtime:
+              type: string
+        service:
+          $ref: '#/components/schemas/ReportedService'
+    RegisterAgentResponse:
+      type: object
+      required: [agentId, agentToken, heartbeatIntervalSeconds, commandPollIntervalSeconds]
+      properties:
+        agentId:
+          type: string
+          pattern: '^agt_'
+        agentToken:
+          type: string
+          pattern: '^opstage_agent_'
+          description: Raw Agent token shown only once to the Agent.
+        heartbeatIntervalSeconds:
+          type: integer
+        commandPollIntervalSeconds:
+          type: integer
+    AgentHeartbeatRequest:
+      type: object
+      properties:
+        serviceId:
+          type: string
+          pattern: '^svc_'
+        health:
+          $ref: '#/components/schemas/HealthReportInput'
+    AgentHeartbeatResponse:
+      type: object
+      required: [heartbeatIntervalSeconds, commandPollIntervalSeconds]
+      properties:
+        heartbeatIntervalSeconds:
+          type: integer
+        commandPollIntervalSeconds:
+          type: integer
+    ServiceReportRequest:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportedService'
+    ReportedService:
+      type: object
+      required: [code, name, manifest]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[a-z0-9][a-z0-9_-]*$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        version:
+          type: string
+          maxLength: 80
+        runtime:
+          type: string
+          enum: [nodejs, java, python, go, other]
+        manifest:
+          $ref: '#/components/schemas/CapsuleManifest'
+        health:
+          $ref: '#/components/schemas/HealthReportInput'
+        configs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigItemInput'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionDefinitionInput'
+    CapsuleManifest:
+      type: object
+      description: |
+        Authoritative shape of a Worker manifest reported by the Agent.
+        Backend stores the full object as `CapsuleService.manifestJson` and validates
+        the listed required fields. Unknown fields are preserved (forward-compat).
+      required: [kind, code, name, version, runtime, agentMode]
+      properties:
+        kind:
+          type: string
+          const: CapsuleService
+        schemaVersion:
+          type: string
+          description: Manifest schema version. Defaults to "1.0" if omitted.
+          default: "1.0"
+        code:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[a-z0-9][a-z0-9_-]*$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        version:
+          type: string
+          minLength: 1
+          maxLength: 80
+        runtime:
+          type: string
+          enum: [nodejs, java, python, go, other]
+        agentMode:
+          type: string
+          enum: [embedded, sidecar, external]
+        capabilities:
+          type: array
+          items:
+            type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: true
+    HealthReportInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/HealthStatus'
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    ConfigItemInput:
+      type: object
+      required: [key, type]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+        source:
+          type: string
+        editable:
+          type: boolean
+        sensitive:
+          type: boolean
+        valuePreview:
+          type: string
+        defaultValue:
+          type: string
+        secretRef:
+          type: string
+    ActionDefinitionInput:
+      type: object
+      required: [name, label]
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        dangerLevel:
+          $ref: '#/components/schemas/DangerLevel'
+        requiresConfirmation:
+          type: boolean
+        inputSchema:
+          type: object
+          additionalProperties: true
+        timeoutSeconds:
+          type: integer
+    AuditEvent:
+      type: object
+      required: [id, actorType, action, result, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: '^aud_'
+        actorType:
+          $ref: '#/components/schemas/AuditActorType'
+        actorId:
+          type: [string, 'null']
+        action:
+          type: string
+        targetType:
+          type: [string, 'null']
+        targetId:
+          type: [string, 'null']
+        result:
+          $ref: '#/components/schemas/AuditResult'
+        message:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    SystemHealth:
+      type: object
+      required: [status, timestamp, version, edition, database]
+      properties:
+        status:
+          type: string
+          description: Overall Backend status. DOWN when any critical dependency is unreachable.
+          enum: [UP, DEGRADED, DOWN]
+        timestamp:
+          type: string
+          format: date-time
+          description: Backend server clock at the time of the response.
+        version:
+          type: string
+          description: Backend semantic version (matches package.json version).
+        edition:
+          type: string
+          description: Build edition. Always "ce" for CE v0.1.
+          enum: [ce]
+        database:
+          type: object
+          required: [status]
+          properties:
+            status:
+              type: string
+              enum: [UP, DEGRADED, DOWN]
+            kind:
+              type: string
+              enum: [sqlite, postgres, mysql]
+              description: Database driver in use. Always "sqlite" in CE v0.1.
+            latencyMs:
+              type: integer
+              minimum: 0
+              description: Round-trip time of the health probe query (e.g. SELECT 1).
+        uptimeSeconds:
+          type: integer
+          minimum: 0
+          description: Seconds since the Backend process started.
+    SystemVersion:
+      type: object
+      required: [version, edition]
+      properties:
+        version:
+          type: string
+        edition:
+          type: string
+          enum: [ce]
+        commit:
+          type: string
+          description: Optional git commit short SHA when available at build time.
+        buildTime:
+          type: string
+          format: date-time
+          description: Optional ISO-8601 timestamp captured at build time.
+          enum: [CE]

@@ -1,0 +1,8 @@
+{
+  "contractVersion": 1,
+  "commandId": "cmd_secret",
+  "status": "COMPLETED",
+  "sensitive": true,
+  "redacted": { "apiKey": "sk-****" },
+  "expiresAt": "2026-07-13T10:05:00Z"
+}

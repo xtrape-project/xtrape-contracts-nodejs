@@ -1,0 +1,5 @@
+{
+  "contractVersion": 1,
+  "acked": ["dlv_001"],
+  "unknown": ["dlv_002"]
+}

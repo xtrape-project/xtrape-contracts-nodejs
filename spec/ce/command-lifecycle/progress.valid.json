@@ -1,0 +1,7 @@
+{
+  "contractVersion": 1,
+  "commandId": "cmd_abc",
+  "instanceId": "demo-echo-1",
+  "seq": 3,
+  "message": "step 3 of 5"
+}

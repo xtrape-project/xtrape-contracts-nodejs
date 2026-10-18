@@ -1,0 +1,8 @@
+{
+  "contractVersion": 1,
+  "status": "FAILED",
+  "commandId": "cmd_abc",
+  "instanceId": "demo-echo-1",
+  "failureReason": "ERROR",
+  "errorMessage": "boom"
+}

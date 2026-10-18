@@ -1,0 +1,18 @@
+extends:
+  - recommended
+
+rules:
+  # The CE v0.1 spec lists localhost in `servers` because the canonical
+  # deployment target is a single self-hosted container. Public hosts are
+  # configured per deployment and intentionally not part of the contract.
+  no-server-example.com: off
+
+  # Several read-only Admin and System GET endpoints rely on the global
+  # 4xx convention documented in `info.description` and
+  # `09-contracts/errors.md` rather than declaring 4xx responses inline.
+  # Mutating endpoints (POST/PUT/PATCH/DELETE) DO declare them explicitly.
+  operation-4xx-response: off
+
+  # `BadRequest` is retained as a standard reusable response component so
+  # individual operations can reference it later without rewriting the spec.
+  no-unused-components: off

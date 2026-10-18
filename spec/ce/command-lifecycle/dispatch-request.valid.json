@@ -1,0 +1,7 @@
+{
+  "contractVersion": 1,
+  "input": {
+    "accountId": "a1"
+  },
+  "idempotencyKey": "idem-1"
+}

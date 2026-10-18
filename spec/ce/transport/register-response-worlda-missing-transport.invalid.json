@@ -1,0 +1,6 @@
+{
+  "agentId": "agt_worlda",
+  "agentToken": "opstage_agent_worlda",
+  "heartbeatIntervalSeconds": 30,
+  "commandPollIntervalSeconds": 1
+}

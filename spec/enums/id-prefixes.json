@@ -1,0 +1,32 @@
+{
+  "$schema": "./id-prefixes.schema.json",
+  "version": "0.1.0",
+  "comment": "Single source of truth for typed-ID prefixes used by newId(prefix). Each ID is `<prefix>_<base32-or-ulid>`. Prefixes are stable; renaming a prefix is a breaking change.",
+  "format": {
+    "shape": "<prefix>_<random>",
+    "randomScheme": "ulid (Crockford base32, 26 chars) — see 08-decisions/0001 for rationale",
+    "separator": "_",
+    "casing": "lowercase prefix; uppercase ULID body",
+    "example": "agt_01HZX5TQYP2N9VRJ8WTRQVZ8K2"
+  },
+  "prefixes": [
+    { "prefix": "wks", "type": "Workspace",         "comment": "Default workspace ID; CE v0.1 ships exactly one." },
+    { "prefix": "usr", "type": "AdminUser",         "comment": "Local admin user." },
+    { "prefix": "ses", "type": "Session",           "comment": "Admin session record (server-side)." },
+    { "prefix": "agt", "type": "Agent",             "comment": "Agent identity." },
+    { "prefix": "tok", "type": "RegistrationToken", "comment": "Registration token (the row; the raw token value is generated separately via newToken('reg'))." },
+    { "prefix": "atk", "type": "AgentToken",        "comment": "Agent token (the row; raw token via newToken('agt'))." },
+    { "prefix": "svc", "type": "CapsuleService",    "comment": "Worker Instance reported by an Agent; persisted type name retained for compatibility." },
+    { "prefix": "act", "type": "ActionDefinition",  "comment": "Action declared on a service manifest." },
+    { "prefix": "cmd", "type": "Command",           "comment": "Command for an Agent to execute." },
+    { "prefix": "res", "type": "CommandResult",     "comment": "Optional separate row for command results; CE v0.1 may inline into Command." },
+    { "prefix": "evt", "type": "AuditEvent",        "comment": "Audit event row." },
+    { "prefix": "hlt", "type": "HealthReport",      "comment": "Health report snapshot (latest persisted per service)." },
+    { "prefix": "cfg", "type": "ConfigItem",        "comment": "Visible config item attached to a service manifest." },
+    { "prefix": "set", "type": "SystemSetting",     "comment": "Bootstrap and runtime setting row." }
+  ],
+  "tokenPrefixes": [
+    { "tokenKind": "RegistrationToken.rawValue", "prefix": "opstage_reg", "comment": "Wire format for raw registration token; backend stores only the SHA-256 hash." },
+    { "tokenKind": "AgentToken.rawValue",        "prefix": "opstage_agt", "comment": "Wire format for raw Agent token; backend stores only the SHA-256 hash." }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xtrape.dev/contracts/worker-compatibility-v0.4.json",
+  "title": "Xtrape Worker compatibility additions",
+  "version": "0.4.0-rc.0",
+  "description": "Additive Worker terminology and endpoint aliases over the existing CE wire contract. Legacy identifiers remain valid until a versioned removal.",
+  "canonicalEndpoints": {
+    "workerReport": "/api/agents/{agentId}/workers/report",
+    "workerList": "/api/admin/workers",
+    "workerDetail": "/api/admin/workers/{serviceId}",
+    "workerAction": "/api/admin/workers/{serviceId}/actions/{actionName}"
+  },
+  "legacyAliases": {
+    "/api/agents/{agentId}/services/report": "/api/agents/{agentId}/workers/report",
+    "/api/admin/capsule-services": "/api/admin/workers",
+    "/api/admin/capsule-services/{serviceId}": "/api/admin/workers/{serviceId}",
+    "/api/admin/capsule-services/{serviceId}/actions/{actionName}": "/api/admin/workers/{serviceId}/actions/{actionName}"
+  },
+  "ownership": {
+    "rule": "An Agent may update only Worker Instance records it owns. Reporting an existing Worker code owned by another Agent fails until an explicit transfer flow exists.",
+    "conflictErrorCode": "CAPSULE_SERVICE_CODE_TAKEN",
+    "note": "The error code is a persisted compatibility identifier."
+  },
+  "requestShapes": {
+    "workerReport": {
+      "type": "object",
+      "required": ["workers"],
+      "properties": {
+        "workers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/workerRuntimeReport" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "definitions": {
+    "workerRuntimeReport": {
+      "type": "object",
+      "required": ["code", "name", "manifest"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "manifest": { "type": "object" },
+        "health": { "type": "object" },
+        "configs": { "type": "array" },
+        "actions": { "type": "array" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "contractVersion": 1,
+  "commandId": "cmd_secret",
+  "outcome": "DELIVERED",
+  "secret": "x",
+  "status": "CONSUMED"
+}

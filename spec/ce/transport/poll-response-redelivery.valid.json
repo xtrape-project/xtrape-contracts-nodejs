@@ -1,0 +1,17 @@
+{
+  "contractVersion": 1,
+  "deliveries": [
+    {
+      "kind": "COMMAND",
+      "deliveryId": "dlv_005",
+      "attempt": 2,
+      "command": {
+        "operation": "EXECUTE",
+        "commandId": "cmd_abc",
+        "actionName": "runHealthCheck",
+        "issuedAt": "2026-07-14T10:00:00Z",
+        "timeoutSeconds": 300
+      }
+    }
+  ]
+}

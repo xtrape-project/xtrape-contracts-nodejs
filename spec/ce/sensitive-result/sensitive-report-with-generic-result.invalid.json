@@ -1,0 +1,12 @@
+{
+  "contractVersion": 1,
+  "status": "COMPLETED",
+  "commandId": "cmd_secret",
+  "instanceId": "demo-echo-1",
+  "sensitive": true,
+  "redacted": {},
+  "secret": "x",
+  "result": {
+    "leak": "y"
+  }
+}

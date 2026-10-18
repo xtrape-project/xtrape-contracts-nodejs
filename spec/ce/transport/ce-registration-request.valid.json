@@ -1,0 +1,26 @@
+{
+  "manifest": {
+    "contractVersion": 1,
+    "service": {
+      "id": "demo-echo-service",
+      "name": "Demo Echo Service",
+      "version": "0.1.0"
+    },
+    "runtime": {
+      "language": "node",
+      "agent": "xtrape-agent-nodejs"
+    },
+    "capabilities": ["status.query"],
+    "message": {
+      "supportedTypes": ["QUERY"]
+    }
+  },
+  "instance": {
+    "contractVersion": 1,
+    "serviceId": "demo-echo-service",
+    "instanceId": "demo-echo-7f3a",
+    "address": "http://demo-echo:8080",
+    "version": "0.1.0",
+    "health": "HEALTHY"
+  }
+}

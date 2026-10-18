@@ -1,0 +1,9 @@
+{
+  "contractVersion": 1,
+  "status": "COMPLETED",
+  "commandId": "cmd_abc",
+  "instanceId": "demo-echo-1",
+  "result": {
+    "ok": true
+  }
+}

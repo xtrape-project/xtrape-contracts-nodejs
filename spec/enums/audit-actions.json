@@ -1,0 +1,213 @@
+{
+  "$schema": "./audit-actions.schema.json",
+  "version": "0.1.0",
+  "comment": "Single source of truth for AuditEvent.action values used in CE v0.1. Action names are lowercase, dot-separated, and stable. New action names require a contract update.",
+  "namingRules": [
+    "lowercase, dot-separated",
+    "format: <subject>.<verb>[.<qualifier>]",
+    "subject is the dominant resource (agent, service, command, token, session, system)",
+    "verb is the past-tense or imperative observation (created, requested, completed, failed, revoked, ...)",
+    "qualifier is optional and disambiguates similar actions"
+  ],
+  "actions": [
+    {
+      "name": "session.login.succeeded",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Admin user successfully logged in."
+    },
+    {
+      "name": "session.login.failed",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Login attempt failed."
+    },
+    {
+      "name": "session.logout",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Admin user logged out."
+    },
+    {
+      "name": "session.csrf.refreshed",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Admin requested a new CSRF token."
+    },
+    {
+      "name": "registration_token.created",
+      "actorType": "USER",
+      "targetType": "RegistrationToken",
+      "summary": "Admin created a registration token."
+    },
+    {
+      "name": "registration_token.revoked",
+      "actorType": "USER",
+      "targetType": "RegistrationToken",
+      "summary": "Admin revoked a registration token."
+    },
+    {
+      "name": "registration_token.consumed",
+      "actorType": "AGENT",
+      "targetType": "RegistrationToken",
+      "summary": "An Agent consumed the registration token during register."
+    },
+    {
+      "name": "agent.registered",
+      "actorType": "AGENT",
+      "targetType": "Agent",
+      "summary": "Agent completed registration and received an AgentToken."
+    },
+    {
+      "name": "agent.heartbeat.received",
+      "actorType": "AGENT",
+      "targetType": "Agent",
+      "summary": "Agent heartbeat received (sampled, not every heartbeat).",
+      "sampled": true
+    },
+    {
+      "name": "agent.disabled",
+      "actorType": "USER",
+      "targetType": "Agent",
+      "summary": "Admin disabled an Agent."
+    },
+    {
+      "name": "agent.enabled",
+      "actorType": "USER",
+      "targetType": "Agent",
+      "summary": "Admin re-enabled an Agent."
+    },
+    {
+      "name": "agent.revoked",
+      "actorType": "USER",
+      "targetType": "Agent",
+      "summary": "Admin revoked an Agent token; the Agent must re-register."
+    },
+    {
+      "name": "agent_token.issued",
+      "actorType": "SYSTEM",
+      "targetType": "AgentToken",
+      "summary": "Backend issued an AgentToken in response to a successful registration."
+    },
+    {
+      "name": "agent_token.rejected",
+      "actorType": "AGENT",
+      "targetType": "AgentToken",
+      "summary": "Backend rejected an AgentToken (revoked/expired/invalid)."
+    },
+    {
+      "name": "service.reported",
+      "actorType": "AGENT",
+      "targetType": "CapsuleService",
+      "summary": "Agent reported or updated a Worker Runtime Report; action name is retained for compatibility."
+    },
+    {
+      "name": "service.retired",
+      "actorType": "AGENT",
+      "targetType": "CapsuleService",
+      "summary": "Agent reported the service as retired."
+    },
+    {
+      "name": "service.action.requested",
+      "actorType": "USER",
+      "targetType": "CapsuleService",
+      "summary": "Admin requested a Worker Action; backend created a Command."
+    },
+    {
+      "name": "command.created",
+      "actorType": "USER",
+      "targetType": "Command",
+      "summary": "Backend persisted a new Command (paired with service.action.requested)."
+    },
+    {
+      "name": "command.dispatched",
+      "actorType": "AGENT",
+      "targetType": "Command",
+      "summary": "Agent polled and received the Command."
+    },
+    {
+      "name": "command.started",
+      "actorType": "AGENT",
+      "targetType": "Command",
+      "summary": "Agent reported startedAt."
+    },
+    {
+      "name": "command.completed",
+      "actorType": "AGENT",
+      "targetType": "Command",
+      "summary": "Agent reported successful CommandResult."
+    },
+    {
+      "name": "command.failed",
+      "actorType": "AGENT",
+      "targetType": "Command",
+      "summary": "Agent reported failure CommandResult."
+    },
+    {
+      "name": "system.agent.offline",
+      "actorType": "SYSTEM",
+      "targetType": "Workspace",
+      "summary": "agent-offline-sweep transitioned an Agent to OFFLINE."
+    },
+    {
+      "name": "system.service.stale",
+      "actorType": "SYSTEM",
+      "targetType": "Workspace",
+      "summary": "service-stale-sweep transitioned a service to STALE."
+    },
+    {
+      "name": "system.command.expired",
+      "actorType": "SYSTEM",
+      "targetType": "Workspace",
+      "summary": "command-ttl-sweep transitioned a Command to EXPIRED."
+    },
+    {
+      "name": "system.bootstrap.completed",
+      "actorType": "SYSTEM",
+      "targetType": "Workspace",
+      "summary": "First-run bootstrap created the default workspace and admin."
+    },
+    {
+      "name": "user.created",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Admin created a new user."
+    },
+    {
+      "name": "user.updated",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Admin updated a user's role or status."
+    },
+    {
+      "name": "user.password.reset",
+      "actorType": "USER",
+      "targetType": "User",
+      "summary": "Admin reset a user's password."
+    },
+    {
+      "name": "command.cancelled",
+      "actorType": "USER",
+      "targetType": "Command",
+      "summary": "Admin cancelled a pending or running Command."
+    },
+    {
+      "name": "maintenance.triggered",
+      "actorType": "USER",
+      "targetType": "Workspace",
+      "summary": "Admin manually triggered a maintenance run."
+    },
+    {
+      "name": "maintenance.run",
+      "actorType": "SYSTEM",
+      "targetType": "Workspace",
+      "summary": "Scheduled maintenance run completed."
+    },
+    {
+      "name": "backup.sqlite.created",
+      "actorType": "USER",
+      "targetType": "Backup",
+      "summary": "Admin created a SQLite backup."
+    }
+  ]
+}

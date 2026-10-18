@@ -1,0 +1,10 @@
+{
+  "contractVersion": 1,
+  "status": "COMPLETED",
+  "commandId": "cmd_abc",
+  "instanceId": "demo-echo-1",
+  "sensitive": true,
+  "result": {
+    "apiKey": "sk-live-abc"
+  }
+}

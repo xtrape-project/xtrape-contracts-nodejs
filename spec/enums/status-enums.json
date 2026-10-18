@@ -1,0 +1,128 @@
+{
+  "$schema": "./status-enums.schema.json",
+  "version": "0.1.0",
+  "comment": "Single source of truth for all status enumerations used in the CE v0.1 wire format. Each binding repo (xtrape-capsule-contracts-node, etc.) generates language-native enum types from this file.",
+  "enums": {
+    "AgentStatus": {
+      "description": "Lifecycle state of an Agent. PENDING = registered but no heartbeat yet; ONLINE = heartbeating; OFFLINE = missed offline threshold; DISABLED = paused by admin; REVOKED = token revoked.",
+      "values": [
+        { "value": "PENDING",  "meaning": "Agent registered but has not yet reported a heartbeat." },
+        { "value": "ONLINE",   "meaning": "Agent has reported a heartbeat within OPSTAGE_AGENT_OFFLINE_THRESHOLD_SECONDS." },
+        { "value": "OFFLINE",  "meaning": "Agent has not reported within the offline threshold; sweepers transitioned PENDING/ONLINE → OFFLINE." },
+        { "value": "DISABLED", "meaning": "Admin paused the Agent; the Agent token is rejected with AGENT_DISABLED." },
+        { "value": "REVOKED",  "meaning": "Admin revoked the Agent token; the Agent must re-register; token is rejected with AGENT_REVOKED." }
+      ],
+      "transitions": [
+        { "from": "PENDING",  "to": ["ONLINE", "OFFLINE", "DISABLED", "REVOKED"] },
+        { "from": "ONLINE",   "to": ["OFFLINE", "DISABLED", "REVOKED"] },
+        { "from": "OFFLINE",  "to": ["ONLINE", "DISABLED", "REVOKED"] },
+        { "from": "DISABLED", "to": ["ONLINE", "REVOKED"] },
+        { "from": "REVOKED",  "to": [] }
+      ]
+    },
+    "CapsuleServiceStatus": {
+      "description": "Effective lifecycle state of a Worker Instance. The schema name is retained for wire compatibility.",
+      "values": [
+        { "value": "PENDING",  "meaning": "Service was reported by an Agent but has not yet sent a health report." },
+        { "value": "UP",       "meaning": "Service has reported a healthy status within freshness threshold." },
+        { "value": "DEGRADED", "meaning": "Service reports healthStatus=DEGRADED OR last health is stale but Agent online." },
+        { "value": "DOWN",     "meaning": "Service reports healthStatus=DOWN." },
+        { "value": "STALE",    "meaning": "Last service report is older than OPSTAGE_HEALTH_STALE_THRESHOLD_SECONDS." },
+        { "value": "OFFLINE",  "meaning": "Owning Agent is OFFLINE/DISABLED/REVOKED — derived effective state." },
+        { "value": "RETIRED",  "meaning": "Service was explicitly retired by Agent (no longer reported)." }
+      ],
+      "derivationOrder": [
+        "If agent.status in (DISABLED, REVOKED) → OFFLINE",
+        "If agent.status == OFFLINE → OFFLINE",
+        "If service was retired → RETIRED",
+        "If lastReportedAt older than healthStaleThreshold → STALE",
+        "Else use last reported HealthStatus mapping (UP/DEGRADED/DOWN)"
+      ]
+    },
+    "HealthStatus": {
+      "description": "Status reported by a service via Agent health endpoint. Distinct from CapsuleServiceStatus (which is the effective derived state).",
+      "values": [
+        { "value": "UP",       "meaning": "Service is healthy." },
+        { "value": "DEGRADED", "meaning": "Service is reachable but reports a degraded condition (e.g., slow dependency)." },
+        { "value": "DOWN",     "meaning": "Service self-reports unhealthy." },
+        { "value": "UNKNOWN",  "meaning": "Service has no health probe yet (initial state)." }
+      ]
+    },
+    "CommandStatus": {
+      "description": "Lifecycle state of a Command. Strict transitions enforced by backend.",
+      "values": [
+        { "value": "PENDING",   "meaning": "Command created; not yet polled by Agent." },
+        { "value": "DISPATCHED","meaning": "Command was returned to the Agent in a poll response." },
+        { "value": "RUNNING",   "meaning": "Agent reported startedAt." },
+        { "value": "SUCCEEDED", "meaning": "Terminal: Agent reported successful CommandResult." },
+        { "value": "FAILED",    "meaning": "Terminal: Agent reported failure CommandResult." },
+        { "value": "EXPIRED",   "meaning": "Terminal: Command past expiresAt before completion." },
+        { "value": "CANCELED",  "meaning": "Terminal: admin canceled the Command (reserved for EE; CE v0.1 may not expose UI but enum is reserved)." }
+      ],
+      "terminal": ["SUCCEEDED", "FAILED", "EXPIRED", "CANCELED"],
+      "transitions": [
+        { "from": "PENDING",    "to": ["DISPATCHED", "EXPIRED", "CANCELED"] },
+        { "from": "DISPATCHED", "to": ["RUNNING", "EXPIRED", "CANCELED"] },
+        { "from": "RUNNING",    "to": ["SUCCEEDED", "FAILED", "EXPIRED", "CANCELED"] },
+        { "from": "SUCCEEDED",  "to": [] },
+        { "from": "FAILED",     "to": [] },
+        { "from": "EXPIRED",    "to": [] },
+        { "from": "CANCELED",   "to": [] }
+      ]
+    },
+    "TokenStatus": {
+      "description": "Lifecycle state of a RegistrationToken or AgentToken.",
+      "values": [
+        { "value": "ACTIVE",  "meaning": "Token is valid and usable." },
+        { "value": "USED",    "meaning": "Registration token has been consumed (one-shot)." },
+        { "value": "REVOKED", "meaning": "Admin revoked the token." },
+        { "value": "EXPIRED", "meaning": "Token past expiresAt." }
+      ]
+    },
+    "AuditResult": {
+      "description": "Result of an audited operation.",
+      "values": [
+        { "value": "SUCCESS", "meaning": "Operation succeeded." },
+        { "value": "FAILURE", "meaning": "Operation failed; metadata.errorCode SHOULD be populated." },
+        { "value": "DENIED",  "meaning": "Operation was rejected by authorization policy." }
+      ]
+    },
+    "ActorType": {
+      "description": "Type of actor that initiated an audited operation.",
+      "values": [
+        { "value": "USER",   "meaning": "An admin user (browser session)." },
+        { "value": "AGENT",  "meaning": "An Agent (bearer token)." },
+        { "value": "SYSTEM", "meaning": "A background process (sweeper, bootstrap)." }
+      ]
+    },
+    "TargetType": {
+      "description": "Type of resource targeted by an audited operation.",
+      "values": [
+        { "value": "AGENT" },
+        { "value": "CAPSULE_SERVICE" },
+        { "value": "COMMAND" },
+        { "value": "REGISTRATION_TOKEN" },
+        { "value": "AGENT_TOKEN" },
+        { "value": "ADMIN_USER" },
+        { "value": "WORKSPACE" },
+        { "value": "SYSTEM_SETTING" }
+      ]
+    },
+    "DangerLevel": {
+      "description": "Self-declared danger level of an ActionDefinition. UI uses this to choose confirmation UX.",
+      "values": [
+        { "value": "LOW",    "meaning": "Idempotent and safe (e.g. echo, runHealthCheck)." },
+        { "value": "MEDIUM", "meaning": "May change service state but reversible." },
+        { "value": "HIGH",   "meaning": "Destructive or hard to reverse; UI MUST require explicit confirmation." }
+      ]
+    },
+    "AgentMode": {
+      "description": "Deployment mode of an Agent.",
+      "values": [
+        { "value": "embedded", "meaning": "Agent runs in-process inside a Worker (CE v0.1 baseline)." },
+        { "value": "sidecar",  "meaning": "Agent runs as a separate process beside services. Reserved for EE.", "reservedFor": "EE" },
+        { "value": "external", "meaning": "Agent runs as a separate fleet manager. Reserved for EE/Cloud.", "reservedFor": "EE" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "operation": "EXECUTE",
+  "commandId": "cmd_origin_2",
+  "actionName": "addTask",
+  "issuedAt": "2026-08-17T00:00:00.000Z",
+  "origin": {
+    "accountKind": "USER",
+    "account": "part_1"
+  }
+}

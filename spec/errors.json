@@ -1,0 +1,128 @@
+{
+  "$schema": "./errors.schema.json",
+  "version": "0.1.0",
+  "envelope": {
+    "shape": {
+      "success": false,
+      "error": {
+        "code": "STRING (one of codes.code)",
+        "message": "STRING (human readable English)",
+        "details": "OPTIONAL OBJECT (structured; sensitive values must be redacted)"
+      }
+    },
+    "rules": [
+      "code MUST be one of the codes in this document",
+      "code values are stable, uppercase, snake-case strings",
+      "message is English; UI MAY translate locally",
+      "details is optional and structured; sensitive values MUST be redacted",
+      "HTTP status codes are listed alongside each code; backend MUST use the listed status"
+    ]
+  },
+  "auditMapping": {
+    "rule": "When backend emits an error response that should also produce an AuditEvent, it writes result=FAILURE and metadata.errorCode=<code>",
+    "example": {
+      "result": "FAILURE",
+      "metadata": { "errorCode": "AGENT_TOKEN_INVALID" }
+    }
+  },
+  "groups": [
+    {
+      "name": "generic",
+      "title": "Generic Codes",
+      "codes": [
+        { "code": "VALIDATION_FAILED",   "httpStatus": 422, "meaning": "Request body or query parameters failed Zod validation." },
+        { "code": "UNAUTHORIZED",        "httpStatus": 401, "meaning": "No valid session or token." },
+        { "code": "FORBIDDEN",           "httpStatus": 403, "meaning": "Authenticated but not allowed (includes CSRF token mismatch)." },
+        { "code": "NOT_FOUND",           "httpStatus": 404, "meaning": "Requested resource does not exist or is not visible to the caller." },
+        { "code": "CONFLICT",            "httpStatus": 409, "meaning": "State conflict (duplicate resource, idempotency violation)." },
+        { "code": "RATE_LIMITED",        "httpStatus": 429, "meaning": "Reserved for future EE/Cloud editions.", "reservedFor": "EE" },
+        { "code": "INTERNAL_ERROR",      "httpStatus": 500, "meaning": "Unexpected server error. Use sparingly; prefer specific codes." },
+        { "code": "SERVICE_UNAVAILABLE", "httpStatus": 503, "meaning": "Backend cannot reach a critical dependency (e.g. database)." }
+      ]
+    },
+    {
+      "name": "authentication",
+      "title": "Authentication Codes",
+      "codes": [
+        { "code": "LOGIN_FAILED",        "httpStatus": 401, "meaning": "Username or password invalid (do not reveal which)." },
+        { "code": "SESSION_EXPIRED",     "httpStatus": 401, "meaning": "Session cookie present but expired." },
+        { "code": "SESSION_INVALID",     "httpStatus": 401, "meaning": "Session cookie tampered with or session not found." },
+        { "code": "CSRF_TOKEN_MISMATCH", "httpStatus": 403, "meaning": "X-CSRF-Token header missing or does not match server-side session token." }
+      ]
+    },
+    {
+      "name": "tokens",
+      "title": "Token Codes",
+      "codes": [
+        { "code": "REGISTRATION_TOKEN_INVALID", "httpStatus": 401, "meaning": "Token does not exist or hash does not match." },
+        { "code": "REGISTRATION_TOKEN_EXPIRED", "httpStatus": 401, "meaning": "Token past expiresAt." },
+        { "code": "REGISTRATION_TOKEN_USED",    "httpStatus": 409, "meaning": "Token already consumed." },
+        { "code": "REGISTRATION_TOKEN_REVOKED", "httpStatus": 401, "meaning": "Token revoked by admin." },
+        { "code": "AGENT_TOKEN_INVALID",        "httpStatus": 401, "meaning": "Authorization: Bearer header missing or hash mismatch." },
+        { "code": "AGENT_TOKEN_REVOKED",        "httpStatus": 401, "meaning": "Agent token has been revoked." },
+        { "code": "AGENT_TOKEN_EXPIRED",        "httpStatus": 401, "meaning": "Agent token past expiresAt." }
+      ]
+    },
+    {
+      "name": "agents",
+      "title": "Agent Codes",
+      "codes": [
+        { "code": "AGENT_NOT_FOUND",   "httpStatus": 404, "meaning": "agentId does not exist." },
+        { "code": "AGENT_DISABLED",    "httpStatus": 403, "meaning": "Agent is DISABLED." },
+        { "code": "AGENT_REVOKED",     "httpStatus": 403, "meaning": "Agent is REVOKED." },
+        { "code": "AGENT_CODE_TAKEN",  "httpStatus": 409, "meaning": "An Agent with this code already exists in the workspace." },
+        { "code": "AGENT_ID_MISMATCH", "httpStatus": 403, "meaning": "Path agentId does not match the Agent that owns the token." }
+      ]
+    },
+    {
+      "name": "capsuleService",
+      "title": "Worker compatibility codes",
+      "codes": [
+        { "code": "CAPSULE_SERVICE_NOT_FOUND",        "httpStatus": 404, "meaning": "serviceId does not exist." },
+        { "code": "CAPSULE_SERVICE_NOT_OWNED",        "httpStatus": 403, "meaning": "Service exists but does not belong to the calling Agent." },
+        { "code": "CAPSULE_SERVICE_MANIFEST_INVALID", "httpStatus": 422, "meaning": "Manifest validation failed (missing required fields, etc.)." },
+        { "code": "CAPSULE_SERVICE_CODE_TAKEN",       "httpStatus": 409, "meaning": "Worker code is already owned in the workspace; code name is retained for compatibility." }
+      ]
+    },
+    {
+      "name": "actionsAndCommands",
+      "title": "Action and Command Codes",
+      "codes": [
+        { "code": "ACTION_NOT_FOUND",             "httpStatus": 404, "meaning": "Action name not declared on the service manifest." },
+        { "code": "ACTION_DISABLED",              "httpStatus": 403, "meaning": "ActionDefinition.enabled = false." },
+        { "code": "ACTION_PAYLOAD_INVALID",       "httpStatus": 422, "meaning": "Payload failed inputSchema validation." },
+        { "code": "ACTION_REQUIRES_CONFIRMATION", "httpStatus": 422, "meaning": "Confirmation flag missing for an action with requiresConfirmation = true." },
+        { "code": "COMMAND_NOT_FOUND",            "httpStatus": 404, "meaning": "commandId does not exist." },
+        { "code": "COMMAND_NOT_OWNED",            "httpStatus": 403, "meaning": "Command exists but is not assigned to the calling Agent." },
+        { "code": "COMMAND_ALREADY_TERMINAL",     "httpStatus": 409, "meaning": "Result reported for a Command already in a terminal state." },
+        { "code": "COMMAND_EXPIRED",              "httpStatus": 410, "meaning": "Command past expiresAt and cannot be reported." },
+        { "code": "COMMAND_INVALID_TRANSITION",   "httpStatus": 409, "meaning": "Attempted a CommandStatus transition that is not allowed." }
+      ]
+    },
+    {
+      "name": "config",
+      "title": "Config Codes (read-only in CE v0.1)",
+      "codes": [
+        { "code": "CONFIG_ITEM_NOT_FOUND",     "httpStatus": 404, "meaning": "Config key does not exist for the service." },
+        { "code": "CONFIG_EDIT_NOT_SUPPORTED", "httpStatus": 405, "meaning": "CE v0.1 does not support config editing — reserved for EE/Cloud." }
+      ]
+    },
+    {
+      "name": "system",
+      "title": "System Codes",
+      "codes": [
+        { "code": "DATABASE_UNAVAILABLE", "httpStatus": 503, "meaning": "Backend cannot reach SQLite database." },
+        { "code": "BOOTSTRAP_FAILED",    "httpStatus": 500, "meaning": "Required environment variable missing — surfaced only via startup logs." }
+      ]
+    }
+  ],
+  "reservedForFutureEditions": [
+    "TENANT_NOT_FOUND",
+    "ORGANIZATION_NOT_FOUND",
+    "SUBSCRIPTION_REQUIRED",
+    "PERMISSION_DENIED",
+    "ROLE_NOT_FOUND",
+    "SECRET_NOT_FOUND",
+    "LICENSE_INVALID"
+  ]
+}

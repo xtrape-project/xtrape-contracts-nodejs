@@ -1,0 +1,58 @@
+{
+  "contractVersion": 1,
+  "deliveries": [
+    {
+      "kind": "COMMAND",
+      "deliveryId": "dlv_001",
+      "attempt": 1,
+      "command": {
+        "operation": "EXECUTE",
+        "commandId": "cmd_abc",
+        "actionName": "runHealthCheck",
+        "input": { "target": "srv-1" },
+        "issuedAt": "2026-07-14T10:00:00Z",
+        "timeoutSeconds": 300
+      }
+    },
+    {
+      "kind": "COMMAND",
+      "deliveryId": "dlv_002",
+      "attempt": 1,
+      "command": {
+        "operation": "REVIEW",
+        "commandId": "cmd_prepare",
+        "actionName": "restartService",
+        "input": { "service": "api" },
+        "issuedAt": "2026-07-14T10:00:01Z",
+        "timeoutSeconds": 30
+      }
+    },
+    {
+      "kind": "CANCEL",
+      "deliveryId": "dlv_003",
+      "attempt": 1,
+      "cancellation": {
+        "cancelId": "cancel_abc",
+        "commandId": "cmd_abc",
+        "issuedAt": "2026-07-14T10:00:02Z",
+        "reason": "operator requested cancellation"
+      }
+    },
+    {
+      "kind": "MESSAGE",
+      "deliveryId": "dlv_004",
+      "attempt": 1,
+      "message": {
+        "contractVersion": 1,
+        "messageId": "msg_001",
+        "conversationId": "conv_tg_123",
+        "targetType": "SERVICE",
+        "targetId": "demo-echo-service",
+        "senderType": "USER",
+        "senderId": "telegram:123456",
+        "messageType": "QUERY",
+        "content": "status?"
+      }
+    }
+  ]
+}

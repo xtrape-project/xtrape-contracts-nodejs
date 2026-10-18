@@ -1,0 +1,5 @@
+{
+  "contractVersion": 1,
+  "mode": "WEBSOCKET",
+  "waitMs": 25000
+}

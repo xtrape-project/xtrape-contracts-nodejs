@@ -1,0 +1,6 @@
+{
+  "contractVersion": 1,
+  "commandId": "cmd_secret",
+  "outcome": "ALREADY_CONSUMED",
+  "consumedAt": "2026-07-13T12:01:00.000Z"
+}

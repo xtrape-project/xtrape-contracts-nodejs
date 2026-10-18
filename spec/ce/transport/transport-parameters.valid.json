@@ -1,0 +1,6 @@
+{
+  "contractVersion": 1,
+  "mode": "LONG_POLL",
+  "waitMs": 25000,
+  "maxBatch": 16
+}

@@ -1,0 +1,10 @@
+{
+  "contractVersion": 1,
+  "deliveries": [
+    {
+      "kind": "EVENT",
+      "deliveryId": "dlv_004",
+      "attempt": 1
+    }
+  ]
+}

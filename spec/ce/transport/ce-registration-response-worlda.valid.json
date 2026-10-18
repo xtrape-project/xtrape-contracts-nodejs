@@ -1,0 +1,11 @@
+{
+  "contractVersion": 1,
+  "instanceId": "demo-echo-7f3a",
+  "accessToken": "xtrape_acc_e2e_example",
+  "transport": {
+    "contractVersion": 1,
+    "mode": "LONG_POLL",
+    "waitMs": 25000,
+    "maxBatch": 16
+  }
+}

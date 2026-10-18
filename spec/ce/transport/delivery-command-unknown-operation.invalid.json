@@ -1,0 +1,17 @@
+{
+  "contractVersion": 1,
+  "deliveries": [
+    {
+      "kind": "COMMAND",
+      "deliveryId": "dlv_007",
+      "attempt": 1,
+      "command": {
+        "operation": "CANCEL",
+        "commandId": "cmd_x",
+        "actionName": "job",
+        "issuedAt": "2026-07-14T10:00:00Z",
+        "timeoutSeconds": 30
+      }
+    }
+  ]
+}

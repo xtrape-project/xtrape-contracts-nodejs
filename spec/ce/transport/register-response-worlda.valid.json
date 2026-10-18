@@ -1,0 +1,12 @@
+{
+  "agentId": "agt_worlda",
+  "agentToken": "opstage_agent_worlda",
+  "heartbeatIntervalSeconds": 30,
+  "commandPollIntervalSeconds": 1,
+  "transport": {
+    "contractVersion": 1,
+    "mode": "LONG_POLL",
+    "waitMs": 25000,
+    "maxBatch": 16
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "contractVersion": 1,
+  "status": "FAILED",
+  "commandId": "cmd_abc",
+  "failureReason": "TIMEOUT",
+  "errorCode": "TASK_TIMEOUT",
+  "errorMessage": "the task's own declared bound elapsed"
+}

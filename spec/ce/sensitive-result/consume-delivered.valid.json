@@ -1,0 +1,8 @@
+{
+  "contractVersion": 1,
+  "commandId": "cmd_secret",
+  "outcome": "DELIVERED",
+  "secret": {
+    "apiKey": "sk-live-abc123"
+  }
+}
